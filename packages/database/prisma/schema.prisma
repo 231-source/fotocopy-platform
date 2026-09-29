@@ -1,0 +1,150 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Store {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  address     String?
+  phone       String?
+  email       String?
+  description String?
+  isOpen      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  services    Service[]
+  orders      Order[]
+  payments    Payment[]
+  printers    Printer[]
+  expenses    Expense[]
+  customers   Customer[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  phone     String?
+  role      Role     @default(OWNER)
+  storeId   String?
+  store     Store?   @relation(fields: [storeId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  OPERATOR
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id])
+  orders    Order[]
+  createdAt DateTime @default(now())
+}
+
+model Service {
+  id             String   @id @default(cuid())
+  storeId        String
+  store          Store    @relation(fields: [storeId], references: [id])
+  name           String
+  category       String
+  description    String?
+  unit           String
+  isActive       Boolean  @default(true)
+  requiresFile   Boolean  @default(false)
+  requiresPrinter Boolean @default(false)
+  estimatedMinutes Int?
+  createdAt      DateTime @default(now())
+}
+
+model Order {
+  id            String        @id @default(cuid())
+  storeId       String
+  store         Store         @relation(fields: [storeId], references: [id])
+  customerId    String?
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  orderNumber   String        @unique
+  status        String
+  paymentStatus String
+  subtotal      Decimal
+  total         Decimal
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  payments      Payment[]
+  items         OrderItem[]
+  printJobs     PrintJob[]
+}
+
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id])
+  serviceName String
+  quantity   Int
+  unitPrice  Decimal
+  totalPrice Decimal
+}
+
+model Payment {
+  id             String   @id @default(cuid())
+  storeId        String
+  store          Store    @relation(fields: [storeId], references: [id])
+  orderId        String
+  order          Order    @relation(fields: [orderId], references: [id])
+  method         String
+  status         String
+  amount         Decimal
+  externalRef    String?
+  paidAt         DateTime?
+  createdAt      DateTime @default(now())
+}
+
+model Printer {
+  id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id])
+  name      String
+  status    String   @default("OFFLINE")
+  isOnline  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id])
+  category    String
+  description String?
+  amount      Decimal
+  createdAt   DateTime @default(now())
+}
+
+model PrintJob {
+  id             String   @id @default(cuid())
+  orderId        String
+  order          Order    @relation(fields: [orderId], references: [id])
+  printerName    String?
+  fileName       String?
+  pageCount      Int?
+  copyCount      Int?
+  paperSize      String?
+  colorMode      String?
+  duplex         Boolean? @default(false)
+  status         String   @default("QUEUED")
+  createdAt      DateTime @default(now())
+}

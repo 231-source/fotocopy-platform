@@ -1,0 +1,21 @@
+{
+  "name": "fotocopy-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace apps/web run dev",
+    "dev:api": "npm --workspace apps/api run dev",
+    "dev:agent": "npm --workspace apps/print-agent run dev",
+    "build": "npm --workspace apps/web run build && npm --workspace apps/api run build && npm --workspace apps/print-agent run build",
+    "lint": "echo \"Add lint later in Phase 2\"",
+    "test": "echo \"Add tests in Phase 12\""
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2",
+    "@types/node": "^22.7.4"
+  }
+}
