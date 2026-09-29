@@ -3,26 +3,25 @@
 Universal multi-tenant platform for photocopy, printing, and document service businesses.
 
 ## Overview
-This repository contains the initial foundation for a platform that supports:
-- multi-tenant store management
-- customer ordering
-- payment-first order flow
-- operator dashboard
-- local print agent integration
-- secure private file handling
+This repository now includes the first two implementation stages:
 
-## Current Phase
-Phase 1: project setup, database foundation, multi-tenant architecture, authentication, roles, and initial store registration structure.
+- Phase 1: project setup, monorepo foundation, and initial platform architecture
+- Phase 2: store setup, service catalog, and pricing configuration
 
-## Monorepo structure
-- apps/web: customer and operator frontend
-- apps/api: backend REST API
-- apps/print-agent: local print agent
-- packages/database: Prisma schema and migrations
-- packages/types: shared DTOs and domain types
-- packages/ui: reusable UI primitives
-- packages/config: environment and shared config
-- packages/validation: validation helpers
+## Current status
+The platform includes:
+- React + TypeScript frontend starter
+- Express + TypeScript API backend
+- Local print-agent shell
+- Prisma schema foundation for multi-tenant data
+- Store onboarding workflow
+- Service management and pricing endpoints
+
+## Key business principles implemented
+- multi-tenant store architecture
+- store-level data separation
+- easy onboarding for owners without technical knowledge
+- payment-first business flow remains as the central long-term design
 
 ## Quick start
 
@@ -32,27 +31,31 @@ Phase 1: project setup, database foundation, multi-tenant architecture, authenti
 2. Copy environment file:
    cp .env.example .env
 
-3. Start development services:
+3. Start the API:
    npm run dev:api
+
+4. Start the frontend:
    npm run dev:web
-   npm run dev:agent
+
+5. Open the app in browser:
+   http://localhost:5173
 
 ## Notes
-- This scaffold is intentionally minimal and safe for incremental development.
-- Phase 1 focuses on the foundation to be extended in later phases.
-- Database and auth are prepared for practical multi-tenant expansion.
+- This project is intentionally implemented incrementally and safely.
+- The API currently uses in-memory mock data for rapid Phase 1/2 development.
+- A PostgreSQL-backed Prisma layer is already scaffolded and ready for later migration to persistent storage.
 
-## Planned phases
-1. Project setup
-2. Store setup
-3. Customer ordering
-4. Payment flow
-5. Operator dashboard
-6. Print system
-7. Customer tracking
-8. Finance
-9. Inventory
-10. Analytics
-11. Security
-12. Testing
-13. Deployment
+## Roadmap
+1. Phase 1: project setup
+2. Phase 2: store setup
+3. Phase 3: customer ordering
+4. Phase 4: payment flow
+5. Phase 5: operator dashboard
+6. Phase 6: print system
+7. Phase 7: tracking and notifications
+8. Phase 8: finance
+9. Phase 9: inventory
+10. Phase 10: analytics
+11. Phase 11: security hardening
+12. Phase 12: testing
+13. Phase 13: deployment
