@@ -228,7 +228,7 @@ app.post('/api/v1/stores/:storeId/orders', (req: AuthRequest, res) => {
   return res.status(201).json({
     order,
     items: createdItems,
-    message: 'Pesanan berhasil dibuat. Silakan lakukan pembayaran.'
+    message: 'Pesanan berhasil dibuat. Silakan lakukan pembayaran dengan QRIS.'
   });
 });
 
@@ -239,39 +239,203 @@ app.get('/api/v1/stores/:storeId/orders/:orderId', (req, res) => {
   const items = db.orderItems.filter(i => i.orderId === order.id);
   const payment = db.payments.find(p => p.orderId === order.id);
   const printJob = db.printJobs.find(p => p.orderId === order.id);
+  const customer = db.customers.find(c => c.id === order.customerId);
 
-  return res.json({ order, items, payment, printJob });
+  return res.json({ order, items, payment, printJob, customer });
 });
 
-// ============== PAYMENTS ==============
-app.post('/api/v1/stores/:storeId/orders/:orderId/payments', (req: AuthRequest, res) => {
-  const { method, amount } = req.body;
+app.get('/api/v1/stores/:storeId/orders', (req, res) => {
+  const orders = db.orders.filter(o => o.storeId === req.params.storeId);
+  const ordersWithDetails = orders.map(order => ({
+    ...order,
+    customer: db.customers.find(c => c.id === order.customerId),
+    payment: db.payments.find(p => p.orderId === order.id),
+    printJob: db.printJobs.find(j => j.orderId === order.id)
+  }));
+  return res.json({ orders: ordersWithDetails });
+});
 
-  if (!method || !amount) {
-    return res.status(400).json({ message: 'Metode pembayaran dan jumlah wajib diisi' });
-  }
+// ============== PAYMENTS - QRIS FLOW ==============
 
+// Generate QRIS dan request pembayaran
+app.post('/api/v1/stores/:storeId/orders/:orderId/qris-request', (req: AuthRequest, res) => {
   const order = db.orders.find(o => o.id === req.params.orderId && o.storeId === req.params.storeId);
   if (!order) return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
 
-  if (order.paymentStatus === 'PAID') {
-    return res.status(400).json({ message: 'Pesanan sudah dibayar' });
+  if (order.paymentStatus !== 'PENDING') {
+    return res.status(400).json({ message: 'Pesanan sudah memiliki pembayaran' });
   }
 
-  if (amount < order.total) {
-    return res.status(400).json({ message: `Jumlah pembayaran kurang. Minimal Rp${order.total.toLocaleString('id-ID')}` });
+  // Generate QRIS reference (simulasi)
+  const qrisRef = `QR-${order.orderNumber}-${Date.now()}`;
+  const qrisData = {
+    qrisReference: qrisRef,
+    amount: order.total,
+    storeName: db.stores.find(s => s.id === req.params.storeId)?.name || 'Toko',
+    orderNumber: order.orderNumber,
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() // 15 menit
+  };
+
+  // Simpan QRIS payment request
+  if (!db.qrisPayments) db.qrisPayments = [];
+  db.qrisPayments.push({
+    id: `qris-${Date.now()}`,
+    orderId: order.id,
+    storeId: req.params.storeId,
+    qrisReference: qrisRef,
+    amount: order.total,
+    status: 'WAITING_PAYMENT',
+    createdAt: new Date().toISOString(),
+    expiresAt: qrisData.expiresAt
+  });
+
+  return res.json({
+    message: 'QRIS berhasil dibuat',
+    qrisData,
+    instruction: 'Scan QRIS dengan aplikasi pembayaran untuk menyelesaikan pembayaran'
+  });
+});
+
+// Cek status pembayaran QRIS
+app.get('/api/v1/stores/:storeId/orders/:orderId/qris-status', (req, res) => {
+  const order = db.orders.find(o => o.id === req.params.orderId && o.storeId === req.params.storeId);
+  if (!order) return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
+
+  if (!db.qrisPayments) db.qrisPayments = [];
+  const qrisPayment = db.qrisPayments.find(q => q.orderId === order.id);
+
+  if (!qrisPayment) {
+    return res.status(404).json({ message: 'QRIS belum diminta' });
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(qrisPayment.expiresAt);
+
+  if (now > expiresAt) {
+    qrisPayment.status = 'EXPIRED';
+  }
+
+  return res.json({
+    qrisStatus: qrisPayment.status,
+    qrisReference: qrisPayment.qrisReference,
+    amount: qrisPayment.amount,
+    orderNumber: order.orderNumber,
+    expiresAt: qrisPayment.expiresAt,
+    isExpired: now > expiresAt,
+    orderStatus: order.paymentStatus
+  });
+});
+
+// Webhook dari payment gateway untuk verifikasi pembayaran
+app.post('/api/v1/webhooks/payment', (req, res) => {
+  const { qrisReference, amount, status, transactionId } = req.body;
+
+  if (!qrisReference || !amount || !status) {
+    return res.status(400).json({ message: 'Data webhook tidak lengkap' });
+  }
+
+  if (!db.qrisPayments) db.qrisPayments = [];
+  const qrisPayment = db.qrisPayments.find(q => q.qrisReference === qrisReference);
+
+  if (!qrisPayment) {
+    return res.status(404).json({ message: 'QRIS tidak ditemukan' });
+  }
+
+  const order = db.orders.find(o => o.id === qrisPayment.orderId);
+  if (!order) return res.status(404).json({ message: 'Order tidak ditemukan' });
+
+  // Validasi jumlah pembayaran
+  if (amount !== order.total) {
+    return res.status(400).json({ message: 'Jumlah pembayaran tidak sesuai' });
+  }
+
+  // Validasi status pembayaran
+  if (status !== 'SUCCESS') {
+    qrisPayment.status = status || 'FAILED';
+    order.paymentStatus = 'FAILED' as PaymentStatus;
+    order.status = 'PAYMENT_FAILED' as OrderStatus;
+    order.updatedAt = new Date().toISOString();
+
+    return res.json({
+      message: 'Pembayaran gagal',
+      orderStatus: order.status,
+      paymentStatus: order.paymentStatus
+    });
+  }
+
+  // Pembayaran berhasil - update order dan buat print job
+  const payment = {
+    id: `pay-${Date.now()}`,
+    storeId: qrisPayment.storeId,
+    orderId: order.id,
+    method: 'QRIS',
+    status: 'PAID' as PaymentStatus,
+    amount: amount,
+    externalRef: transactionId || qrisReference,
+    paidAt: new Date().toISOString(),
+    confirmedBy: 'gateway-webhook',
+    createdAt: new Date().toISOString()
+  };
+
+  db.payments.push(payment);
+  qrisPayment.status = 'PAID';
+
+  order.paymentStatus = 'PAID';
+  order.status = 'PAID';
+  order.updatedAt = new Date().toISOString();
+
+  // Buat print job otomatis setelah pembayaran
+  const printJob = {
+    id: `job-${Date.now()}`,
+    storeId: qrisPayment.storeId,
+    orderId: order.id,
+    status: 'QUEUED' as const,
+    fileName: undefined,
+    pageCount: undefined,
+    copyCount: undefined,
+    paperSize: undefined,
+    colorMode: undefined,
+    duplex: false,
+    createdAt: new Date().toISOString()
+  };
+
+  db.printJobs.push(printJob);
+
+  return res.json({
+    message: 'Pembayaran berhasil diverifikasi',
+    orderStatus: order.status,
+    paymentStatus: order.paymentStatus,
+    printJob: printJob,
+    payment: payment,
+    notification: 'Pesanan siap diproses ke antrian printer'
+  });
+});
+
+// Manual payment confirmation (untuk admin/operator)
+app.post('/api/v1/stores/:storeId/orders/:orderId/confirm-payment', authMiddleware, requireRole(['ADMIN', 'OPERATOR']), (req: AuthRequest, res) => {
+  const { amount, transactionId } = req.body;
+  const order = db.orders.find(o => o.id === req.params.orderId && o.storeId === req.params.storeId);
+
+  if (!order) return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
+
+  if (order.paymentStatus !== 'PENDING') {
+    return res.status(400).json({ message: 'Pesanan sudah memiliki status pembayaran' });
+  }
+
+  if (amount !== order.total) {
+    return res.status(400).json({ message: `Jumlah harus Rp${order.total.toLocaleString('id-ID')}` });
   }
 
   const payment = {
     id: `pay-${Date.now()}`,
     storeId: req.params.storeId,
     orderId: order.id,
-    method,
+    method: 'MANUAL',
     status: 'PAID' as PaymentStatus,
-    amount,
-    externalRef: method === 'QRIS' ? `qris-${Date.now()}` : undefined,
+    amount: amount,
+    externalRef: transactionId || '',
     paidAt: new Date().toISOString(),
-    confirmedBy: req.user?.id || 'customer',
+    confirmedBy: req.user!.id,
     createdAt: new Date().toISOString()
   };
 
@@ -297,11 +461,12 @@ app.post('/api/v1/stores/:storeId/orders/:orderId/payments', (req: AuthRequest, 
 
   db.printJobs.push(printJob);
 
-  return res.status(201).json({
-    message: 'Pembayaran berhasil. Pesanan siap diproses.',
+  return res.json({
+    message: 'Pembayaran berhasil dikonfirmasi',
     payment,
     order,
-    printJob
+    printJob,
+    notification: 'Pesanan masuk antrian printer'
   });
 });
 
@@ -316,7 +481,7 @@ app.get('/api/v1/stores/:storeId/print-jobs', (req, res) => {
   return res.json({ printJobs: jobsWithOrder });
 });
 
-app.patch('/api/v1/stores/:storeId/print-jobs/:jobId', authMiddleware, (req: AuthRequest, res) => {
+app.patch('/api/v1/stores/:storeId/print-jobs/:jobId', authMiddleware, requireRole(['OPERATOR']), (req: AuthRequest, res) => {
   const { status } = req.body;
 
   if (!status) {
@@ -337,6 +502,16 @@ app.patch('/api/v1/stores/:storeId/print-jobs/:jobId', authMiddleware, (req: Aut
   return res.json({ printJob: job, order });
 });
 
+app.patch('/api/v1/stores/:storeId/orders/:orderId/complete', authMiddleware, requireRole(['OPERATOR']), (req: AuthRequest, res) => {
+  const order = db.orders.find(o => o.id === req.params.orderId && o.storeId === req.params.storeId);
+  if (!order) return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
+
+  order.status = 'COMPLETED';
+  order.updatedAt = new Date().toISOString();
+
+  return res.json({ message: 'Pesanan berhasil diselesaikan', order });
+});
+
 // ============== REPORTS ==============
 app.get('/api/v1/stores/:storeId/reports/summary', (req, res) => {
   const orders = db.orders.filter(o => o.storeId === req.params.storeId);
@@ -345,8 +520,9 @@ app.get('/api/v1/stores/:storeId/reports/summary', (req, res) => {
   const summary = {
     totalOrders: orders.length,
     completedOrders: orders.filter(o => o.status === 'COMPLETED').length,
+    pendingPayments: orders.filter(o => o.paymentStatus === 'PENDING').length,
     totalRevenue: payments.filter(p => p.status === 'PAID').reduce((sum, p) => sum + p.amount, 0),
-    totalCustomers: db.customers.filter(c => c.storeId === req.params.storeId).length,
+    totalCustomers: new Set(orders.map(o => o.customerId)).size,
     averageOrderValue: orders.length > 0 ? payments.filter(p => p.status === 'PAID').reduce((sum, p) => sum + p.amount, 0) / orders.length : 0
   };
 

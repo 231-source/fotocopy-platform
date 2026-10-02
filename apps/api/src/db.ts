@@ -1,5 +1,16 @@
 import type { Store, User, Service, Customer, Order, OrderItem, Payment, PrintJob } from './types.js';
 
+interface QRISPayment {
+  id: string;
+  orderId: string;
+  storeId: string;
+  qrisReference: string;
+  amount: number;
+  status: 'WAITING_PAYMENT' | 'PAID' | 'EXPIRED' | 'FAILED';
+  createdAt: string;
+  expiresAt: string;
+}
+
 export class Database {
   stores: Store[] = [
     {
@@ -24,6 +35,15 @@ export class Database {
       email: 'owner@kopicopy.id',
       password: 'admin123',
       role: 'OWNER',
+      storeId: 'store-demo-001',
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 'user-operator-001',
+      name: 'Operator Toko',
+      email: 'operator@kopicopy.id',
+      password: 'operator123',
+      role: 'OPERATOR',
       storeId: 'store-demo-001',
       createdAt: new Date().toISOString()
     }
@@ -57,6 +77,20 @@ export class Database {
       estimatedMinutes: 8,
       price: 300,
       createdAt: new Date().toISOString()
+    },
+    {
+      id: 'svc-003',
+      storeId: 'store-demo-001',
+      name: 'Laminasi A4',
+      category: 'FINISHING',
+      description: 'Laminasi dokumen ukuran A4',
+      unit: 'Per lembar',
+      isActive: true,
+      requiresFile: false,
+      requiresPrinter: false,
+      estimatedMinutes: 5,
+      price: 5000,
+      createdAt: new Date().toISOString()
     }
   ];
 
@@ -65,6 +99,7 @@ export class Database {
   orderItems: OrderItem[] = [];
   payments: Payment[] = [];
   printJobs: PrintJob[] = [];
+  qrisPayments: QRISPayment[] = [];
 
   getNextOrderNumber(storeId: string): string {
     const storeOrders = this.orders.filter(o => o.storeId === storeId);
